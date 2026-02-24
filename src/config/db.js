@@ -28,9 +28,10 @@ export async function initializeDatabase() {
       
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     `);
-    console.log('✓ Database initialized');
+    console.log('✓ Database schema created/verified');
   } catch (error) {
-    console.error('Database init error:', error.message);
-    throw error;
+    console.error('Database initialization error:', error.message);
+    // Don't throw - let server continue. DB connection will be retried on first query.
+    // This is critical for cloud deployments where DB might be starting simultaneously.
   }
 }

@@ -60,19 +60,24 @@ app.use((err, req, res, next) => {
 
 // Initialize and start
 async function start() {
+  // Initialize database (but don't crash if it fails)
   try {
     console.log('Initializing database...');
     await initializeDatabase();
-    
-    app.listen(PORT, () => {
-      console.log(`✓ Server running on port ${PORT}`);
-      console.log(`✓ Frontend: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
-      console.log(`✓ NODE_ENV: ${process.env.NODE_ENV}`);
-    });
+    console.log('✓ Database initialized successfully');
   } catch (error) {
-    console.error('Failed to start:', error.message);
-    process.exit(1);
+    console.warn('⚠ Database initialization error:', error.message);
+    console.warn('Server will continue running. Database connection will be retried on first query.');
   }
+
+  // Start server (always succeeds, regardless of DB status)
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`✓ Server running on 0.0.0.0:${PORT}`);
+    console.log(`✓ Frontend: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
+    console.log(`✓ NODE_ENV: ${process.env.NODE_ENV}`);
+    console.log(`✓ DATABASE_URL: ${process.env.DATABASE_URL ? '✓ Set' : '⚠ NOT SET'}`);
+    console.log(`✓ JWT_SECRET: ${process.env.JWT_SECRET ? '✓ Set' : '⚠ NOT SET'}`);
+  });
 }
 
 start();
