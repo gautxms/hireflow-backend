@@ -75,8 +75,18 @@ async function start() {
     console.log(`✓ Server running on 0.0.0.0:${PORT}`);
     console.log(`✓ Frontend: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
     console.log(`✓ NODE_ENV: ${process.env.NODE_ENV}`);
-    console.log(`✓ DATABASE_URL: ${process.env.DATABASE_URL ? '✓ Set' : '⚠ NOT SET'}`);
+    
+    // Database URL status (critical for debugging)
+    if (process.env.DATABASE_URL) {
+      const safeUrl = process.env.DATABASE_URL.replace(/:[^@]+@/, ':***@');
+      console.log(`✓ DATABASE_URL: ${safeUrl}`);
+      console.log(`✓ Is Railway DB: ${process.env.DATABASE_URL.includes('railway') ? 'YES' : 'NO'}`);
+    } else {
+      console.log(`⚠ DATABASE_URL: NOT SET (database queries will fail)`);
+    }
+    
     console.log(`✓ JWT_SECRET: ${process.env.JWT_SECRET ? '✓ Set' : '⚠ NOT SET'}`);
+    console.log('[SERVER] Ready for connections');
   });
 }
 

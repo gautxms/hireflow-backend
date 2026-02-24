@@ -4,13 +4,31 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+// DEBUG: Log database configuration
+const DATABASE_URL = process.env.DATABASE_URL;
+const NODE_ENV = process.env.NODE_ENV;
+
+console.log('[DB] Initializing pool...');
+console.log('[DB] NODE_ENV:', NODE_ENV);
+console.log('[DB] DATABASE_URL present:', !!DATABASE_URL);
+if (DATABASE_URL) {
+  // Log safe version (hide password)
+  const safeUrl = DATABASE_URL.replace(/:[^@]+@/, ':***@');
+  console.log('[DB] Connection string:', safeUrl);
+  console.log('[DB] Is Railway:', DATABASE_URL.includes('railway') ? 'YES' : 'NO');
+}
+
+// CRITICAL: Pool MUST use DATABASE_URL
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  connectionString: DATABASE_URL,
+  ssl: NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
 
+console.log('[DB] Pool created successfully');
+
 pool.on('error', (err) => {
-  console.error('Unexpected error on idle client', err);
+  console.error('[DB] Unexpected error on idle client:', err.message);
+  console.error('[DB] Error code:', err.code);
 });
 
 export default pool;
