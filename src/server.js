@@ -8,7 +8,7 @@ import { verifyToken } from './middleware/auth.js';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 
 // Middleware
 app.use(express.json());
@@ -18,7 +18,7 @@ const allowedOrigins = [
   'https://hireflow.dev',
   'https://www.hireflow.dev',
   'http://localhost:5173',
-  'http://localhost:3000',
+  'http://localhost:8080',
 ];
 
 app.use(cors({
