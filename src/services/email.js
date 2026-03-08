@@ -1,15 +1,21 @@
 import nodemailer from 'nodemailer';
 
 // Configure transporter for Hostinger
+const SMTP_PORT = parseInt(process.env.SMTP_PORT || '465');
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
-  port: parseInt(process.env.SMTP_PORT || '465'),
-  secure: process.env.SMTP_PORT === '465', // true for 465, false for 587
+  port: SMTP_PORT,
+  secure: SMTP_PORT === 465, // true for 465 (SSL), false for 587 (TLS)
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
+  // Connection timeout settings
+  connectionTimeout: 10000, // 10 seconds
+  socketTimeout: 10000, // 10 seconds
 });
+
+console.log('[EMAIL] SMTP configured for', process.env.SMTP_HOST, 'port', SMTP_PORT);
 
 // Test connection on startup
 transporter.verify((error, success) => {
