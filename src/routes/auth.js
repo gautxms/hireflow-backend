@@ -2,16 +2,15 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import pool from '../config/db.js';
 import { generateToken } from '../middleware/auth.js';
+import { sendVerificationEmail } from '../services/email.js';
 
 const router = express.Router();
 
 // POST /api/auth/signup
 router.post('/signup', async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, firstName } = req.body;
 
-  // DEBUG: Log signup attempt
   console.log('[SIGNUP] Request received for email:', email);
-  console.log('[SIGNUP] Pool has connectionString:', !!pool?.connectionString);
 
   // Validation
   if (!email || !password) {
@@ -23,7 +22,8 @@ router.post('/signup', async (req, res) => {
   }
 
   try {
-    console.log('[SIGNUP] Attempting database query...');
+    console.log('[SIGNUP] Checking if user exists...');
+    
     // Check if user exists
     const existingUser = await pool.query(
       'SELECT id FROM users WHERE email = $1',
@@ -31,13 +31,16 @@ router.post('/signup', async (req, res) => {
     );
 
     if (existingUser.rows.length > 0) {
+      console.log('[SIGNUP] User already exists:', email);
       return res.status(409).json({ error: 'User already exists' });
     }
 
     // Hash password
+    console.log('[SIGNUP] Hashing password...');
     const passwordHash = await bcrypt.hash(password, 10);
 
     // Create user
+    console.log('[SIGNUP] Creating user in database...');
     const result = await pool.query(
       'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email',
       [email.toLowerCase(), passwordHash]
@@ -46,15 +49,27 @@ router.post('/signup', async (req, res) => {
     const user = result.rows[0];
     const token = generateToken(user.id, user.email);
 
-    console.log('[SIGNUP] Success! User created:', user.email);
+    console.log('[SIGNUP] ✓ User created:', user.email);
+
+    // Send verification email
+    console.log('[SIGNUP] Sending verification email...');
+    const emailResult = await sendVerificationEmail(user.email, firstName || 'there');
+
+    if (emailResult.success) {
+      console.log('[SIGNUP] ✓ Email sent successfully');
+    } else {
+      console.error('[SIGNUP] ⚠ Email failed (non-fatal):', emailResult.error);
+    }
+
     res.status(201).json({
       token,
-      user: { id: user.id, email: user.email }
+      user: { id: user.id, email: user.email },
+      emailSent: emailResult.success,
+      message: 'Account created. Check your email for verification link.',
     });
   } catch (error) {
-    console.error('[SIGNUP] ERROR:', error.message);
-    console.error('[SIGNUP] Error code:', error.code);
-    console.error('[SIGNUP] Full error:', error);
+    console.error('[SIGNUP] ✗ ERROR:', error.message);
+    console.error('[SIGNUP] ✗ Code:', error.code);
     res.status(500).json({ error: 'Signup failed' });
   }
 });
