@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { initializeDatabase } from './config/db.js';
 import authRoutes from './routes/auth.js';
+import paddleRoutes from './routes/paddle.js';
 import { verifyToken } from './middleware/auth.js';
 
 dotenv.config();
@@ -41,6 +42,7 @@ app.get('/health', (req, res) => {
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/paddle', paddleRoutes);
 
 // Protected example endpoint
 app.get('/api/protected', verifyToken, (req, res) => {
