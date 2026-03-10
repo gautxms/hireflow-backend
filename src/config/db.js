@@ -40,11 +40,17 @@ export async function initializeDatabase() {
         id SERIAL PRIMARY KEY,
         email VARCHAR(255) UNIQUE NOT NULL,
         password_hash VARCHAR(255) NOT NULL,
+        subscription_status VARCHAR(50) DEFAULT 'trial',
+        paddle_customer_id VARCHAR(255),
+        paddle_subscription_id VARCHAR(255),
+        trial_ends_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
       
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+      CREATE INDEX IF NOT EXISTS idx_users_paddle_customer ON users(paddle_customer_id);
+      CREATE INDEX IF NOT EXISTS idx_users_paddle_subscription ON users(paddle_subscription_id);
     `);
     console.log('✓ Database schema created/verified');
   } catch (error) {
