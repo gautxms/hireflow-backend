@@ -1,7 +1,129 @@
 import express from 'express';
 import pool from '../config/db.js';
+import { verifyToken } from '../middleware/auth.js';
 
 const router = express.Router();
+
+const PADDLE_API_BASE_URL = process.env.PADDLE_API_BASE_URL || 'https://api.paddle.com';
+const PADDLE_API_VERSION = process.env.PADDLE_API_VERSION || '1';
+
+const PRICE_IDS_BY_PLAN = {
+  monthly: process.env.PADDLE_MONTHLY_PRICE_ID,
+  annual: process.env.PADDLE_ANNUAL_PRICE_ID,
+};
+
+function getAppOrigin(req) {
+  return process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
+}
+
+// POST /api/paddle/checkout-url - Create a Paddle checkout session
+router.post('/checkout-url', verifyToken, async (req, res) => {
+  const { plan } = req.body || {};
+  const userId = req.user?.userId;
+
+  console.log('[PADDLE] Checkout request:', {
+    plan,
+    userId,
+    timestamp: new Date().toISOString(),
+    apiKeyExists: !!process.env.PADDLE_API_KEY,
+  });
+
+  // Validate plan
+  if (plan !== 'monthly' && plan !== 'annual') {
+    console.error('[PADDLE] ✗ Invalid plan:', plan);
+    return res.status(400).json({ error: 'Plan must be monthly or annual' });
+  }
+
+  // Check API key
+  if (!process.env.PADDLE_API_KEY) {
+    console.error('[PADDLE] ✗ PADDLE_API_KEY not configured');
+    return res.status(500).json({ error: 'Paddle API key is not configured' });
+  }
+
+  // Get price ID
+  const priceId = PRICE_IDS_BY_PLAN[plan];
+  if (!priceId) {
+    console.error('[PADDLE] ✗ Missing price ID for plan:', plan);
+    return res.status(500).json({ error: `Paddle price ID is missing for ${plan} plan` });
+  }
+
+  try {
+    // Get user from database
+    const result = await pool.query(
+      'SELECT id, email FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (result.rows.length === 0) {
+      console.error('[PADDLE] ✗ User not found:', userId);
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = result.rows[0];
+    const appOrigin = getAppOrigin(req);
+    const successUrl = `${appOrigin}/billing/success`;
+    const cancelUrl = `${appOrigin}/billing/cancel`;
+
+    console.log('[PADDLE] Creating transaction:', {
+      priceId,
+      userEmail: user.email,
+      successUrl,
+      cancelUrl,
+    });
+
+    // Call Paddle API to create checkout
+    const paddleResponse = await fetch(`${PADDLE_API_BASE_URL}/transactions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.PADDLE_API_KEY}`,
+        'Content-Type': 'application/json',
+        'Paddle-Version': PADDLE_API_VERSION,
+      },
+      body: JSON.stringify({
+        items: [{
+          price_id: priceId,
+          quantity: 1,
+        }],
+        customer: {
+          email: user.email,
+        },
+        custom_data: {
+          userId: user.id,
+          email: user.email,
+          plan,
+        },
+        checkout: {
+          success_url: successUrl,
+          cancel_url: cancelUrl,
+        },
+      }),
+    });
+
+    const paddlePayload = await paddleResponse.json();
+
+    if (!paddleResponse.ok) {
+      console.error('[PADDLE] ✗ Paddle API error:', {
+        status: paddleResponse.status,
+        error: paddlePayload,
+      });
+      return res.status(502).json({ error: 'Failed to create Paddle checkout', details: paddlePayload });
+    }
+
+    const checkoutUrl = paddlePayload?.data?.checkout?.url;
+
+    if (!checkoutUrl) {
+      console.error('[PADDLE] ✗ No checkout URL in Paddle response:', paddlePayload);
+      return res.status(502).json({ error: 'Paddle checkout URL missing in response' });
+    }
+
+    console.log('[PADDLE] ✓ Checkout URL created successfully');
+    res.json({ checkoutUrl });
+  } catch (error) {
+    console.error('[PADDLE] ✗ Error creating checkout:', error.message);
+    console.error('[PADDLE] ✗ Stack:', error.stack);
+    res.status(500).json({ error: 'Failed to create checkout', message: error.message });
+  }
+});
 
 // POST /api/paddle/webhook
 router.post('/webhook', async (req, res) => {
