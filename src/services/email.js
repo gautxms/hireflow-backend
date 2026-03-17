@@ -1,4 +1,8 @@
 import nodemailer from 'nodemailer';
+import dns from 'dns';
+
+// Force IPv4 only (Railway blocks IPv6)
+dns.setDefaultResultOrder('ipv4first');
 
 // Configure transporter for Hostinger + Railway
 const SMTP_HOST = process.env.SMTP_HOST || 'smtp.hostinger.com';
