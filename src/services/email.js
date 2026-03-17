@@ -1,8 +1,19 @@
 import nodemailer from 'nodemailer';
-import dns from 'dns';
+import { lookup } from 'dns';
+import { promisify } from 'util';
 
 // Force IPv4 only (Railway blocks IPv6)
-dns.setDefaultResultOrder('ipv4first');
+const dnsLookup = promisify(lookup);
+
+// Custom lookup function that ONLY returns IPv4 addresses
+const ipv4OnlyLookup = async (hostname, options, callback) => {
+  try {
+    const result = await dnsLookup(hostname, { family: 4, all: false });
+    callback(null, result.address, result.family);
+  } catch (error) {
+    callback(error);
+  }
+};
 
 // Configure transporter for Hostinger + Railway
 const SMTP_HOST = process.env.SMTP_HOST || 'smtp.hostinger.com';
@@ -26,6 +37,7 @@ console.log('[EMAIL] User:', SMTP_USER ? SMTP_USER.split('@')[0] + '...@...' : '
 console.log('[EMAIL] Pass:', SMTP_PASS ? '✓ SET' : '✗ NOT SET');
 console.log('[EMAIL] From:', EMAIL_FROM);
 console.log('[EMAIL] Frontend:', FRONTEND_URL);
+console.log('[EMAIL] DNS Resolution: IPv4 ONLY (Railway blocks IPv6)');
 console.log('[EMAIL] Environment: Railway (port 465 → 587 auto-redirect)');
 console.log('[EMAIL] ================================');
 
@@ -43,8 +55,8 @@ const transporter = nodemailer.createTransport({
   port: SMTP_PORT,
   // Port 587 uses STARTTLS (secure: false), others use direct SSL (secure: true)
   secure: !USE_STARTTLS,
-  // **CRITICAL FOR RAILWAY**: Force IPv4 only (IPv6 not supported)
-  family: 4,
+  // **CRITICAL FOR RAILWAY**: Custom DNS lookup - IPv4 ONLY
+  lookup: ipv4OnlyLookup,
   auth: {
     user: SMTP_USER,
     pass: SMTP_PASS,
