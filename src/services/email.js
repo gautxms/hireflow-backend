@@ -39,6 +39,8 @@ const transporter = nodemailer.createTransport({
   port: SMTP_PORT,
   // Port 587 uses STARTTLS (secure: false), others use direct SSL (secure: true)
   secure: !USE_STARTTLS,
+  // **CRITICAL FOR RAILWAY**: Force IPv4 only (IPv6 not supported)
+  family: 4,
   auth: {
     user: SMTP_USER,
     pass: SMTP_PASS,
