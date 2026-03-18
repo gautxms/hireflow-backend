@@ -1,44 +1,31 @@
 import nodemailer from 'nodemailer';
-import { lookup } from 'dns';
-import { promisify } from 'util';
-
-// Force IPv4 only (Railway blocks IPv6)
-const dnsLookup = promisify(lookup);
-
-// Custom lookup function that ONLY returns IPv4 addresses
-const ipv4OnlyLookup = async (hostname, options, callback) => {
-  try {
-    const result = await dnsLookup(hostname, { family: 4, all: false });
-    callback(null, result.address, result.family);
-  } catch (error) {
-    callback(error);
-  }
-};
 
 // Configure transporter for Hostinger + Railway
-const SMTP_HOST = process.env.SMTP_HOST || 'smtp.hostinger.com';
+const SMTP_HOST_CONFIG = process.env.SMTP_HOST || 'smtp.hostinger.com';
 const SMTP_PORT_CONFIG = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT) : null;
 const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
 const EMAIL_FROM = process.env.EMAIL_FROM || 'hello@gfactai.com';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://hireflow.dev';
 
-// **CRITICAL FIX FOR RAILWAY**: Port 465 is blocked by Railway firewall
-// Override to port 587 (STARTTLS) which is guaranteed to work
+// **CRITICAL FIX FOR RAILWAY**:
+// 1. Port 465 is blocked by Railway firewall → use 587 (STARTTLS)
+// 2. IPv6 is blocked by Railway → use IPv4 address directly
+// smtp.hostinger.com IPv4: 172.65.255.143 (hardcoded to bypass DNS)
+const SMTP_HOST = '172.65.255.143';
 const SMTP_PORT = SMTP_PORT_CONFIG === 465 ? 587 : (SMTP_PORT_CONFIG || 587);
 const USE_STARTTLS = SMTP_PORT === 587;
 
 console.log('[EMAIL] ================================');
 console.log('[EMAIL] Email Service Initialization');
 console.log('[EMAIL] ================================');
-console.log('[EMAIL] Host:', SMTP_HOST);
-console.log('[EMAIL] Port:', SMTP_PORT, `(${USE_STARTTLS ? 'STARTTLS/TLS' : 'SSL'})`);
+console.log('[EMAIL] Host:', SMTP_HOST, `(${SMTP_HOST_CONFIG})`);
+console.log('[EMAIL] Port:', SMTP_PORT, `(${USE_STARTTLS ? 'STARTTLS' : 'SSL'})`);
 console.log('[EMAIL] User:', SMTP_USER ? SMTP_USER.split('@')[0] + '...@...' : '✗ NOT SET');
 console.log('[EMAIL] Pass:', SMTP_PASS ? '✓ SET' : '✗ NOT SET');
 console.log('[EMAIL] From:', EMAIL_FROM);
 console.log('[EMAIL] Frontend:', FRONTEND_URL);
-console.log('[EMAIL] DNS Resolution: IPv4 ONLY (Railway blocks IPv6)');
-console.log('[EMAIL] Environment: Railway (port 465 → 587 auto-redirect)');
+console.log('[EMAIL] Railway Bypass: IPv4 direct (172.65.255.143), port 465→587');
 console.log('[EMAIL] ================================');
 
 // Validate env vars
@@ -51,12 +38,10 @@ if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
 }
 
 const transporter = nodemailer.createTransport({
-  host: SMTP_HOST,
+  host: SMTP_HOST, // 172.65.255.143 (IPv4 direct, bypasses DNS)
   port: SMTP_PORT,
   // Port 587 uses STARTTLS (secure: false), others use direct SSL (secure: true)
   secure: !USE_STARTTLS,
-  // **CRITICAL FOR RAILWAY**: Custom DNS lookup - IPv4 ONLY
-  lookup: ipv4OnlyLookup,
   auth: {
     user: SMTP_USER,
     pass: SMTP_PASS,
@@ -70,6 +55,9 @@ const transporter = nodemailer.createTransport({
   tls: {
     rejectUnauthorized: false, // Railway sits behind a proxy, don't reject certs
     minVersion: 'TLSv1.2',
+    // For IP-based connections, hostname verification fails
+    // We explicitly allow this for Hostinger's IPv4 address
+    servername: SMTP_HOST_CONFIG, // smtp.hostinger.com for SNI
   },
   // Minimal connection pool for stability
   pool: {
