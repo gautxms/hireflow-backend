@@ -1,99 +1,27 @@
-import nodemailer from 'nodemailer';
+import sgMail from '@sendgrid/mail';
 
-// Configure transporter for Hostinger + Railway
-const SMTP_HOST_CONFIG = process.env.SMTP_HOST || 'smtp.hostinger.com';
-const SMTP_PORT_CONFIG = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT) : null;
-const SMTP_USER = process.env.SMTP_USER;
-const SMTP_PASS = process.env.SMTP_PASS;
+// Configure SendGrid
+const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
 const EMAIL_FROM = process.env.EMAIL_FROM || 'hello@gfactai.com';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://hireflow.dev';
-
-// **CRITICAL FIX FOR RAILWAY**:
-// 1. Port 465 is blocked by Railway firewall → use 587 (STARTTLS)
-// 2. IPv6 is blocked by Railway → use IPv4 address directly
-// smtp.hostinger.com IPv4: 172.65.255.143 (hardcoded to bypass DNS)
-const SMTP_HOST = '172.65.255.143';
-const SMTP_PORT = SMTP_PORT_CONFIG === 465 ? 587 : (SMTP_PORT_CONFIG || 587);
-const USE_STARTTLS = SMTP_PORT === 587;
 
 console.log('[EMAIL] ================================');
 console.log('[EMAIL] Email Service Initialization');
 console.log('[EMAIL] ================================');
-console.log('[EMAIL] Host:', SMTP_HOST, `(${SMTP_HOST_CONFIG})`);
-console.log('[EMAIL] Port:', SMTP_PORT, `(${USE_STARTTLS ? 'STARTTLS' : 'SSL'})`);
-console.log('[EMAIL] User:', SMTP_USER ? SMTP_USER.split('@')[0] + '...@...' : '✗ NOT SET');
-console.log('[EMAIL] Pass:', SMTP_PASS ? '✓ SET' : '✗ NOT SET');
+console.log('[EMAIL] Provider: SendGrid');
+console.log('[EMAIL] API Key:', SENDGRID_API_KEY ? '✓ SET' : '✗ NOT SET');
 console.log('[EMAIL] From:', EMAIL_FROM);
 console.log('[EMAIL] Frontend:', FRONTEND_URL);
-console.log('[EMAIL] Railway Bypass: IPv4 direct (172.65.255.143), port 465→587');
 console.log('[EMAIL] ================================');
 
 // Validate env vars
-if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
-  console.error('[EMAIL] ⚠️  CRITICAL: Missing SMTP configuration!');
+if (!SENDGRID_API_KEY) {
+  console.error('[EMAIL] ⚠️  CRITICAL: Missing SENDGRID_API_KEY!');
   console.error('[EMAIL] Email will not work until configured.');
-  console.error('[EMAIL] ✗ SMTP_HOST:', SMTP_HOST ? '✓' : '✗ NOT SET');
-  console.error('[EMAIL] ✗ SMTP_USER:', SMTP_USER ? '✓' : '✗ NOT SET');
-  console.error('[EMAIL] ✗ SMTP_PASS:', SMTP_PASS ? '✓' : '✗ NOT SET');
+} else {
+  sgMail.setApiKey(SENDGRID_API_KEY);
+  console.log('[EMAIL] ✓ SendGrid API configured');
 }
-
-const transporter = nodemailer.createTransport({
-  host: SMTP_HOST, // 172.65.255.143 (IPv4 direct, bypasses DNS)
-  port: SMTP_PORT,
-  // Port 587 uses STARTTLS (secure: false), others use direct SSL (secure: true)
-  secure: !USE_STARTTLS,
-  auth: {
-    user: SMTP_USER,
-    pass: SMTP_PASS,
-  },
-  // Railway-optimized connection settings
-  connectionTimeout: 10000, // 10 seconds (Railway may be slow)
-  socketTimeout: 10000, // 10 seconds
-  greetingTimeout: 10000, // 10 seconds
-  authMethod: 'login', // Hostinger requires LOGIN auth
-  // TLS/SSL settings critical for Railway
-  tls: {
-    rejectUnauthorized: false, // Railway sits behind a proxy, don't reject certs
-    minVersion: 'TLSv1.2',
-    // For IP-based connections, hostname verification fails
-    // We explicitly allow this for Hostinger's IPv4 address
-    servername: SMTP_HOST_CONFIG, // smtp.hostinger.com for SNI
-  },
-  // Minimal connection pool for stability
-  pool: {
-    maxConnections: 1, // Single connection to avoid Railway limits
-    maxMessages: 50,
-  },
-  logger: false, // Disable nodemailer verbose logging
-});
-
-console.log('[EMAIL] ✓ Transporter created');
-
-// Non-blocking verification (don't crash app if SMTP fails)
-console.log('[EMAIL] Testing SMTP connection (non-blocking)...');
-transporter.verify((error, success) => {
-  if (error) {
-    console.error('[EMAIL] ✗ SMTP verification failed');
-    console.error('[EMAIL] ✗ Error:', error.message);
-    console.error('[EMAIL] ✗ Code:', error.code);
-    
-    if (error.code === 'ECONNREFUSED') {
-      console.error('[EMAIL] 💡 Check: SMTP_HOST and SMTP_PORT are correct');
-    } else if (error.code === 'ETIMEDOUT') {
-      console.error('[EMAIL] 💡 Check: Railway firewall may be blocking connection');
-      console.error('[EMAIL] 💡 Retrying with port 587 (STARTTLS)...');
-    } else if (error.code === 'EAUTH') {
-      console.error('[EMAIL] 💡 Check: SMTP_USER and SMTP_PASS are correct');
-    } else if (error.code === 'ENOTFOUND') {
-      console.error('[EMAIL] 💡 Check: Invalid SMTP_HOST');
-    }
-    
-    console.error('[EMAIL] ⚠️  Email may not work. Server continuing anyway.');
-  } else {
-    console.log('[EMAIL] ✓ SMTP connection verified!');
-    console.log('[EMAIL] ✓ Ready to send emails');
-  }
-});
 
 /**
  * Send email with automatic retry
@@ -101,9 +29,9 @@ transporter.verify((error, success) => {
 async function sendEmailWithRetry(mailOptions, retries = 3) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      const info = await transporter.sendMail(mailOptions);
-      console.log(`[EMAIL] ✓ Email sent (attempt ${attempt}/${retries}) - Message ID:`, info.messageId);
-      return { success: true, messageId: info.messageId };
+      const response = await sgMail.send(mailOptions);
+      console.log(`[EMAIL] ✓ Email sent (attempt ${attempt}/${retries}) - Message ID:`, response[0].headers['x-message-id']);
+      return { success: true, messageId: response[0].headers['x-message-id'] };
     } catch (error) {
       console.error(`[EMAIL] ✗ Attempt ${attempt}/${retries} failed:`, error.message);
       
@@ -130,8 +58,8 @@ export async function sendVerificationEmail(email, firstName = 'there') {
     const verificationLink = `${FRONTEND_URL}/verify?email=${encodeURIComponent(email)}`;
 
     const mailOptions = {
-      from: `"HireFlow" <${EMAIL_FROM}>`,
       to: email,
+      from: EMAIL_FROM,
       cc: 'gautam@hireflow.dev',
       subject: '✨ Verify Your HireFlow Account',
       html: `
@@ -197,8 +125,8 @@ export async function sendWelcomeEmail(email, firstName = 'there') {
     console.log('[EMAIL] Sending welcome email to:', email);
 
     const mailOptions = {
-      from: `"HireFlow" <${EMAIL_FROM}>`,
       to: email,
+      from: EMAIL_FROM,
       cc: 'gautam@hireflow.dev',
       subject: '🚀 Your HireFlow Account is Ready!',
       html: `
@@ -263,8 +191,8 @@ export async function sendPasswordResetEmail(email, resetLink) {
     console.log('[EMAIL] Sending password reset email to:', email);
 
     const mailOptions = {
-      from: `"HireFlow" <${EMAIL_FROM}>`,
       to: email,
+      from: EMAIL_FROM,
       subject: 'Reset Your HireFlow Password',
       html: `
         <!DOCTYPE html>
