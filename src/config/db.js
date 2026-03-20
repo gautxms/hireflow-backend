@@ -61,6 +61,32 @@ export async function initializeDatabase() {
       ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT false,
       ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMP;
     `);
+
+    // Create payment_attempts table for tracking payment retries
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS payment_attempts (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        paddle_transaction_id VARCHAR(255) UNIQUE,
+        paddle_customer_id VARCHAR(255),
+        amount DECIMAL(10, 2),
+        currency VARCHAR(3) DEFAULT 'USD',
+        status VARCHAR(50) DEFAULT 'pending',
+        error_code VARCHAR(100),
+        error_message TEXT,
+        retry_count INTEGER DEFAULT 0,
+        max_retries INTEGER DEFAULT 3,
+        next_retry_at TIMESTAMP,
+        last_attempted_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      
+      CREATE INDEX IF NOT EXISTS idx_payment_attempts_user ON payment_attempts(user_id);
+      CREATE INDEX IF NOT EXISTS idx_payment_attempts_status ON payment_attempts(status);
+      CREATE INDEX IF NOT EXISTS idx_payment_attempts_next_retry ON payment_attempts(next_retry_at);
+      CREATE INDEX IF NOT EXISTS idx_payment_attempts_transaction ON payment_attempts(paddle_transaction_id);
+    `);
     console.log('✓ Database schema created/verified');
   } catch (error) {
     console.error('Database initialization error:', error.message);

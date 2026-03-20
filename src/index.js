@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import { initializeDatabase } from './config/db.js';
 import { createApp } from './server.js';
+import { paymentRetryJob } from './jobs/paymentRetryJob.js';
 
 // Load environment variables FIRST
 dotenv.config();
@@ -39,6 +40,26 @@ async function start() {
     
     console.log(`✓ JWT_SECRET: ${process.env.JWT_SECRET ? '✓ Set' : '⚠ NOT SET'}`);
     console.log('[SERVER] Ready for connections');
+
+    // Schedule payment retry job (runs every hour)
+    console.log('[JOB-PAYMENTS] Scheduling payment retry job (hourly)...');
+    
+    // Run once at startup to catch any pending retries
+    paymentRetryJob().catch(err => {
+      console.error('[JOB-PAYMENTS] ✗ Error running payment retry job at startup:', err.message);
+    });
+
+    // Schedule to run every hour
+    const jobInterval = setInterval(() => {
+      paymentRetryJob().catch(err => {
+        console.error('[JOB-PAYMENTS] ✗ Error running payment retry job:', err.message);
+      });
+    }, 60 * 60 * 1000); // 1 hour
+
+    // Prevent job from keeping process alive when no other work exists
+    jobInterval.unref();
+    
+    console.log('[JOB-PAYMENTS] ✓ Payment retry job scheduled (hourly)');
   });
 }
 

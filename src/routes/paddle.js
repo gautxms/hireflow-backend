@@ -1,6 +1,7 @@
 import express from 'express';
 import pool from '../config/db.js';
 import { verifyToken } from '../middleware/auth.js';
+import { logPaymentFailure } from '../services/paymentRetry.js';
 
 const router = express.Router();
 
@@ -158,6 +159,10 @@ router.post('/webhook', async (req, res) => {
 
       case 'transaction.completed':
         await handleTransactionCompleted(eventData);
+        break;
+
+      case 'transaction.failed':
+        await handleTransactionFailed(eventData);
         break;
 
       default:
@@ -372,6 +377,69 @@ async function handleTransactionCompleted(eventData) {
     }
   } catch (error) {
     console.error('[PADDLE] ✗ Error in handleTransactionCompleted:', error.message);
+  }
+}
+
+/**
+ * Handle transaction.failed event
+ * Logs payment failure for automatic retry with exponential backoff
+ */
+async function handleTransactionFailed(eventData) {
+  try {
+    console.log('[PADDLE] Processing transaction.failed');
+    
+    const transactionId = eventData?.id;
+    const customerId = eventData?.customer?.id;
+    const customerEmail = eventData?.customer?.email;
+    const errorCode = eventData?.error?.code || 'UNKNOWN_ERROR';
+    const errorMessage = eventData?.error?.message || 'Payment failed';
+    const amount = eventData?.details?.totals?.grand_total;
+    const currency = eventData?.details?.currency;
+
+    if (!customerEmail || !transactionId) {
+      console.error('[PADDLE] ✗ Missing email or transaction ID in failed event');
+      return;
+    }
+
+    console.log('[PADDLE] Payment failed:', {
+      transactionId,
+      email: customerEmail,
+      errorCode,
+      errorMessage,
+    });
+
+    // Find user
+    const userResult = await pool.query(
+      'SELECT id FROM users WHERE email = $1',
+      [customerEmail.toLowerCase()]
+    );
+
+    if (userResult.rows.length === 0) {
+      console.error('[PADDLE] ✗ User not found for email:', customerEmail);
+      return;
+    }
+
+    const userId = userResult.rows[0].id;
+
+    // Log payment failure for later retry
+    const paymentAttemptId = await logPaymentFailure(
+      userId,
+      transactionId,
+      customerId,
+      errorCode,
+      errorMessage,
+      amount,
+      currency
+    );
+
+    console.log('[PADDLE] ✓ Payment failure logged for retry:', paymentAttemptId);
+
+    // Send admin notification
+    console.log('[PADDLE] Admin notification: Payment failed for user', userId);
+    // TODO: Send Slack/email alert to support team
+
+  } catch (error) {
+    console.error('[PADDLE] ✗ Error in handleTransactionFailed:', error.message);
   }
 }
 
