@@ -122,6 +122,43 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// POST /api/auth/verify-email
+router.post('/verify-email', async (req, res) => {
+  const { email } = req.body;
+
+  console.log('[VERIFY] Request received for email:', email);
+
+  if (!email) {
+    return res.status(400).json({ error: 'Email required' });
+  }
+
+  try {
+    console.log('[VERIFY] Marking email as verified...');
+    
+    const result = await pool.query(
+      'UPDATE users SET email_verified = true, email_verified_at = NOW() WHERE email = $1 RETURNING id, email, email_verified',
+      [email.toLowerCase()]
+    );
+
+    if (result.rows.length === 0) {
+      console.log('[VERIFY] User not found:', email);
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = result.rows[0];
+    console.log('[VERIFY] ✓ Email verified:', user.email);
+
+    res.status(200).json({
+      success: true,
+      message: 'Email verified successfully!',
+      user: { id: user.id, email: user.email, email_verified: user.email_verified }
+    });
+  } catch (error) {
+    console.error('[VERIFY] ✗ ERROR:', error.message);
+    res.status(500).json({ error: 'Verification failed' });
+  }
+});
+
 // GET /api/auth/me (protected route example)
 router.get('/me', (req, res) => {
   if (!req.user) {
