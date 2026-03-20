@@ -3,6 +3,7 @@ import cors from 'cors';
 import authRoutes from './routes/auth.js';
 import paddleRoutes from './routes/paddle.js';
 import { verifyToken } from './middleware/auth.js';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
 /**
  * Create and configure the Express app
@@ -50,16 +51,11 @@ export function createApp() {
     res.json({ message: 'This is protected', user: req.user });
   });
 
-  // 404 handler
-  app.use((req, res) => {
-    res.status(404).json({ error: 'Not found' });
-  });
+  // 404 handler - must be before error handler
+  app.use(notFoundHandler);
 
-  // Error handler
-  app.use((err, req, res, next) => {
-    console.error(err.message);
-    res.status(500).json({ error: err.message || 'Internal server error' });
-  });
+  // Global error handler - must be last
+  app.use(errorHandler);
 
   return app;
 }

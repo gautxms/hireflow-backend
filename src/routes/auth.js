@@ -3,36 +3,36 @@ import bcrypt from 'bcryptjs';
 import pool from '../config/db.js';
 import { generateToken } from '../middleware/auth.js';
 import { sendVerificationEmail } from '../services/email.js';
+import { validateRequest, signupSchema, loginSchema, verifyEmailSchema } from '../middleware/validation.js';
+import { isValidEmailDomain } from '../utils/sanitize.js';
 
 const router = express.Router();
 
 // POST /api/auth/signup
-router.post('/signup', async (req, res) => {
+// Validates input, creates user, sends verification email
+router.post('/signup', validateRequest(signupSchema), async (req, res) => {
   const { email, password, firstName } = req.body;
 
   console.log('[SIGNUP] Request received for email:', email);
 
-  // Validation
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password required' });
-  }
-
-  if (password.length < 8) {
-    return res.status(400).json({ error: 'Password must be at least 8 characters' });
-  }
-
   try {
+    // Validate email domain (additional domain check)
+    if (!isValidEmailDomain(email)) {
+      console.log('[SIGNUP] ✗ Invalid email domain:', email);
+      return res.status(400).json({ error: 'Please use a valid email address' });
+    }
+
     console.log('[SIGNUP] Checking if user exists...');
     
     // Check if user exists
     const existingUser = await pool.query(
       'SELECT id FROM users WHERE email = $1',
-      [email.toLowerCase()]
+      [email]
     );
 
     if (existingUser.rows.length > 0) {
-      console.log('[SIGNUP] User already exists:', email);
-      return res.status(409).json({ error: 'User already exists' });
+      console.log('[SIGNUP] ✗ User already exists:', email);
+      return res.status(409).json({ error: 'Email already registered' });
     }
 
     // Hash password
@@ -43,7 +43,7 @@ router.post('/signup', async (req, res) => {
     console.log('[SIGNUP] Creating user in database...');
     const result = await pool.query(
       'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email',
-      [email.toLowerCase(), passwordHash]
+      [email, passwordHash]
     );
 
     const user = result.rows[0];
@@ -69,32 +69,32 @@ router.post('/signup', async (req, res) => {
     });
   } catch (error) {
     console.error('[SIGNUP] ✗ ERROR:', error.message);
-    console.error('[SIGNUP] ✗ Code:', error.code);
+    if (error.code === '23505') {
+      // Unique constraint violation
+      return res.status(409).json({ error: 'Email already registered' });
+    }
     res.status(500).json({ error: 'Signup failed' });
   }
 });
 
 // POST /api/auth/login
-router.post('/login', async (req, res) => {
+// Validates input, authenticates user, returns JWT
+router.post('/login', validateRequest(loginSchema), async (req, res) => {
   const { email, password } = req.body;
 
-  // DEBUG: Log login attempt
   console.log('[LOGIN] Request received for email:', email);
-
-  // Validation
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password required' });
-  }
 
   try {
     console.log('[LOGIN] Querying database for user...');
+    
     // Find user
     const result = await pool.query(
       'SELECT id, email, password_hash FROM users WHERE email = $1',
-      [email.toLowerCase()]
+      [email]
     );
 
     if (result.rows.length === 0) {
+      console.log('[LOGIN] ✗ User not found:', email);
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
@@ -104,80 +104,40 @@ router.post('/login', async (req, res) => {
     const passwordMatch = await bcrypt.compare(password, user.password_hash);
 
     if (!passwordMatch) {
+      console.log('[LOGIN] ✗ Password mismatch for:', email);
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     // Generate token
     const token = generateToken(user.id, user.email);
 
-    console.log('[LOGIN] Success! User authenticated:', user.email);
+    console.log('[LOGIN] ✓ Success! User authenticated:', user.email);
     res.status(200).json({
       token,
       user: { id: user.id, email: user.email }
     });
   } catch (error) {
-    console.error('[LOGIN] ERROR:', error.message);
-    console.error('[LOGIN] Error code:', error.code);
+    console.error('[LOGIN] ✗ ERROR:', error.message);
     res.status(500).json({ error: 'Login failed' });
   }
 });
 
 // POST /api/auth/verify-email
-router.post('/verify-email', async (req, res) => {
+// Validates email parameter, marks email as verified
+router.post('/verify-email', validateRequest(verifyEmailSchema), async (req, res) => {
   const { email } = req.body;
 
   console.log('[VERIFY] Request received for email:', email);
-
-  if (!email) {
-    return res.status(400).json({ error: 'Email required' });
-  }
-
-  try {
-    console.log('[VERIFY] Marking email as verified...');
-    
-    const result = await pool.query(
-      'UPDATE users SET email_verified = true, email_verified_at = NOW() WHERE email = $1 RETURNING id, email, email_verified',
-      [email.toLowerCase()]
-    );
-
-    if (result.rows.length === 0) {
-      console.log('[VERIFY] User not found:', email);
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const user = result.rows[0];
-    console.log('[VERIFY] ✓ Email verified:', user.email);
-
-    res.status(200).json({
-      success: true,
-      message: 'Email verified successfully!',
-      user: { id: user.id, email: user.email, email_verified: user.email_verified }
-    });
-  } catch (error) {
-    console.error('[VERIFY] ✗ ERROR:', error.message);
-    res.status(500).json({ error: 'Verification failed' });
-  }
-});
-
-// POST /api/auth/verify-email
-router.post('/verify-email', async (req, res) => {
-  const { email } = req.body;
-
-  console.log('[VERIFY] Request received for email:', email);
-
-  if (!email) {
-    return res.status(400).json({ error: 'Email required' });
-  }
 
   try {
     // Update user: mark email as verified
     const result = await pool.query(
       'UPDATE users SET email_verified = true, email_verified_at = NOW() WHERE email = $1 RETURNING id, email, email_verified',
-      [email.toLowerCase()]
+      [email]
     );
 
     if (result.rows.length === 0) {
-      console.log('[VERIFY] User not found:', email);
+      console.log('[VERIFY] ✗ User not found:', email);
       return res.status(404).json({ error: 'User not found' });
     }
 
@@ -190,12 +150,13 @@ router.post('/verify-email', async (req, res) => {
       user: { id: user.id, email: user.email, email_verified: user.email_verified }
     });
   } catch (error) {
-    console.error('[VERIFY] ERROR:', error.message);
+    console.error('[VERIFY] ✗ ERROR:', error.message);
     res.status(500).json({ error: 'Verification failed' });
   }
 });
 
-// GET /api/auth/me (protected route example)
+// GET /api/auth/me
+// Protected route - requires valid JWT
 router.get('/me', (req, res) => {
   if (!req.user) {
     return res.status(401).json({ error: 'Unauthorized' });
